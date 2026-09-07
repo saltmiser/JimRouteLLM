@@ -4,6 +4,8 @@ import uuid
 import hashlib
 import asyncio
 import logging
+import re
+import copy
 from typing import Any, Dict, List, Optional, Union
 from fastapi import FastAPI, HTTPException, Header, Request, Query, status
 from fastapi.responses import JSONResponse, StreamingResponse
@@ -298,6 +300,102 @@ async def mcp_post_handler(request: Request, session_id: Optional[str] = Query(N
     return JSONResponse(status_code=202, content={"status": "accepted"})
 
 
+def sanitize_messages_for_local(messages: List[Dict[str, Any]]) -> tuple[List[Dict[str, Any]], bool]:
+    """
+    Sanitize system/developer prompts for local open-weights models (e.g. Gemma 4 / llama.cpp).
+    Open-weights models treat tool calling as an either/or turn: they either emit conversational
+    text or a tool call, but not both in the same assistant turn.
+    
+    Codex CLI injects instructions asking the model to send a concise message to the user
+    BEFORE calling tools ("The messages you send before tool calls should describe what is immediately
+    about to be done next in very concise language...").
+    When local models obey this, they emit the message, close the turn (<turn|>), and halt without
+    issuing the tool call.
+    
+    This function replaces the preamble requirement with a strict immediate tool-call directive
+    and appends a concise tool execution policy.
+    """
+    sanitized = copy.deepcopy(messages)
+    
+    preamble_pattern = re.compile(
+        r"Before doing large chunks of work that may incur latency.*?bring the user along\.",
+        re.DOTALL | re.IGNORECASE
+    )
+    fallback_pattern = re.compile(
+        r"The messages you send before tool calls should describe what is immediately about to be done next[^\n]*",
+        re.IGNORECASE
+    )
+    
+    tool_replacement = (
+        "CRITICAL TOOL EXECUTION DIRECTIVE: "
+        "Never send conversational text, status updates, or preambles before calling a tool. "
+        "When a tool or command is needed, emit the tool call IMMEDIATELY as your first action in the turn. "
+        "Only output conversational text to the user when you are not calling any tools or when the entire task is complete."
+    )
+    
+    did_modify = False
+
+    def process_text(text: str) -> tuple[str, bool]:
+        mod = False
+        if preamble_pattern.search(text):
+            text = preamble_pattern.sub(tool_replacement, text)
+            mod = True
+        elif fallback_pattern.search(text):
+            text = fallback_pattern.sub(tool_replacement, text)
+            mod = True
+        return text, mod
+
+    for msg in sanitized:
+        content = msg.get("content")
+        if isinstance(content, str):
+            new_text, mod = process_text(content)
+            if mod:
+                msg["content"] = new_text
+                did_modify = True
+        elif isinstance(content, list):
+            for part in content:
+                if isinstance(part, dict) and "text" in part:
+                    new_text, mod = process_text(part["text"])
+                    if mod:
+                        part["text"] = new_text
+                        did_modify = True
+
+    # If the specific preamble text was not found, append a concise local tool policy to developer/system
+    if not did_modify:
+        policy = (
+            "\n\n[LOCAL TOOL USE POLICY]: "
+            "When you need to execute a tool, invoke the tool call directly. "
+            "Do NOT output conversational text, status updates, or pre-announcements before a tool call."
+        )
+        appended = False
+        for msg in sanitized:
+            if msg.get("role") in ("system", "developer"):
+                content = msg.get("content")
+                if isinstance(content, str):
+                    msg["content"] = content + policy
+                    appended = True
+                    did_modify = True
+                    break
+                elif isinstance(content, list):
+                    for part in content:
+                        if isinstance(part, dict) and "text" in part:
+                            part["text"] = part["text"] + policy
+                            appended = True
+                            did_modify = True
+                            break
+                    if appended:
+                        break
+        
+        if not appended:
+            sanitized.insert(0, {
+                "role": "system",
+                "content": policy.strip()
+            })
+            did_modify = True
+
+    return sanitized, did_modify
+
+
 @app.post("/v1/chat/completions")
 async def chat_completions(request: Request):
     """
@@ -385,6 +483,14 @@ async def chat_completions(request: Request):
         litellm_kwargs["api_base"] = decision.api_base
         litellm_kwargs["api_key"] = "lm-studio"
         litellm_kwargs["custom_llm_provider"] = "openai"
+
+        # Sanitize messages to prevent open-weights models (Gemma 4, etc.) from halting
+        # on pre-tool-call announcements/preambles demanded by client system prompts
+        sanitized_msgs, did_sanitize = sanitize_messages_for_local(messages)
+        litellm_kwargs["messages"] = sanitized_msgs
+        if did_sanitize:
+            headers["X-RouteLLM-Sanitized"] = "true"
+            logger.info(f"[LOCAL SANITIZER] Sanitized pre-tool preamble policy for {decision.model_name}")
 
     elif decision.target == "gemini":
         litellm_kwargs["api_key"] = settings.gemini_api_key
