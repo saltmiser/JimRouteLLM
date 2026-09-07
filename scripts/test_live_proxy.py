@@ -56,18 +56,18 @@ def main():
     print(f"    Status: {status} | Discovered {len(models)} model IDs")
     print(f"    Sample models: {models[:6]}")
     assert "routellm" in models, "routellm virtual model missing"
-    assert "google/gemma-4-12b-qat" in models, "gemma-4-12b model missing"
+    assert "google/gemma-4-e2b" in models, "gemma-4-e2b model missing"
     assert "google/gemma-4-26b-a4b-qat" in models, "gemma-4-26b model missing"
     print("    [✔] PASSED: Virtual and physical models exposed")
 
-    # 3. Fast Tier Routing (Gemma 4 12B)
-    print("\n[Test 3] Low-Complexity Prompt Routing (Target: google/gemma-4-12b-qat)")
+    # 3. Fast Tier Routing (Gemma 4 E2B)
+    print("\n[Test 3] Low-Complexity Prompt Routing (Target: google/gemma-4-e2b)")
     easy_payload = {
         "model": "routellm",
         "messages": [
             {"role": "user", "content": "What is 2 + 2? Return only the single digit number."}
         ],
-        "max_tokens": 60,
+        "max_tokens": 200,
         "temperature": 0.0
     }
     t0 = time.perf_counter()
@@ -76,18 +76,19 @@ def main():
     target = resp_headers.get("x-routellm-target")
     model_used = resp_headers.get("x-routellm-model")
     score = float(resp_headers.get("x-routellm-score", 0))
-    reply = body["choices"][0]["message"]["content"].strip()
+    msg = body["choices"][0]["message"]
+    reply = (msg.get("content") or msg.get("reasoning_content") or "").strip()
     
     print(f"    Latency:      {dt:.2f}s")
     print(f"    Target Tier:  {target}")
     print(f"    Model Routed: {model_used}")
-    print(f"    NPU Score:    {score:.3f} (Threshold < 0.45)")
+    print(f"    NPU Score:    {score:.3f} (Threshold < 0.28)")
     print(f"    Reply:        '{reply}'")
     assert status == 200, f"HTTP {status}"
-    assert model_used == "google/gemma-4-12b-qat", f"Expected gemma, got {model_used}"
-    assert score < 0.45, f"Expected score < 0.45, got {score}"
+    assert model_used == "google/gemma-4-e2b", f"Expected gemma e2b, got {model_used}"
+    assert score < 0.28, f"Expected score < 0.28, got {score}"
     assert "4" in reply, f"Expected '4' in response, got '{reply}'"
-    print("    [✔] PASSED: Low-complexity prompt cleanly routed to Gemma 4 12B")
+    print("    [✔] PASSED: Low-complexity prompt cleanly routed to Gemma 4 E2B")
 
     # 4. Heavy Tier Routing (Gemma 4 26B-A4B)
     print("\n[Test 4] High-Complexity Prompt Routing (Target: google/gemma-4-26b-a4b-qat)")
@@ -98,7 +99,7 @@ def main():
     hard_payload = {
         "model": "routellm",
         "messages": [{"role": "user", "content": hard_prompt}],
-        "max_tokens": 60,
+        "max_tokens": 200,
         "temperature": 0.0
     }
     t0 = time.perf_counter()
@@ -107,16 +108,17 @@ def main():
     target = resp_headers.get("x-routellm-target")
     model_used = resp_headers.get("x-routellm-model")
     score = float(resp_headers.get("x-routellm-score", 0))
-    reply = body["choices"][0]["message"]["content"].strip()
+    hard_msg = body["choices"][0]["message"]
+    reply = (hard_msg.get("content") or hard_msg.get("reasoning_content") or "").strip()
     
     print(f"    Latency:      {dt:.2f}s")
     print(f"    Target Tier:  {target}")
     print(f"    Model Routed: {model_used}")
-    print(f"    NPU Score:    {score:.3f} (Threshold >= 0.35)")
+    print(f"    NPU Score:    {score:.3f} (Threshold >= 0.28)")
     print(f"    Reply snippet:'{reply[:90]}...'")
     assert status == 200, f"HTTP {status}"
     assert model_used == "google/gemma-4-26b-a4b-qat", f"Expected gemma 26b, got {model_used}"
-    assert score >= 0.35, f"Expected score >= 0.35, got {score}"
+    assert score >= 0.28, f"Expected score >= 0.28, got {score}"
     print("    [✔] PASSED: High-complexity prompt cleanly routed to Gemma 4 26B-A4B")
 
     # 5. Dynamic MCP Tool Pruning in Live HTTP Request

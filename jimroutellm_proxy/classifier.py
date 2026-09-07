@@ -25,18 +25,35 @@ COMPLEX_PATTERNS = [
     re.compile(r"\b(cross-compile|assembly|simd|avx-?512|cuda|tensorrt|vulkan|metal|shader)\b", re.IGNORECASE),
 ]
 
+# Programming, script generation, and debugging patterns that warrant routing to the 26B model
+CODING_PATTERNS = [
+    re.compile(r"\b(write|create|generate|implement|build)\s+(a\s+)?(python|bash|shell|c\+\+|c#|rust|go|javascript|typescript|java|ruby|php|sql|lisp)?\s*(script|function|program|class|algorithm|code|module|api|scraper|crawler)\b", re.IGNORECASE),
+    re.compile(r"\b(debug|traceback|syntaxerror|typeerror|valueerror|nullpointer|exception|segfault|core\s*dump|fix\s+(this\s+)?bug)\b", re.IGNORECASE),
+    re.compile(r"\b(regex|regular\s*expression|dockerfile|docker-compose|kubernetes|k8s|cmake|makefile|systemd|cron\s*job)\b", re.IGNORECASE),
+    re.compile(r"\b(test\s*case|unittest|pytest|mock|stub|benchmark)\b", re.IGNORECASE),
+]
+
+# Fast-path trivial patterns that the 2B model handles with extreme speed
 SIMPLE_PATTERNS = [
-    re.compile(r"^(hi|hello|hey|greetings|thanks|thank you|good morning|good evening)[\.\!\?]?$", re.IGNORECASE),
-    re.compile(r"^(what is|who is|define|translate|synonym for|convert \d+)\s+[\w\s\-\.]+\??$", re.IGNORECASE),
-    re.compile(r"^(fix typo|format this json|prettify|capitalize|lowercase)\b", re.IGNORECASE),
+    re.compile(r"^(hi|hello|hey|howdy|greetings|thanks|thank you|thx|good morning|good afternoon|good evening|bye|goodbye)[\s\.\!\?]*$", re.IGNORECASE),
+    re.compile(r"^(what is|calculate|compute)?\s*[\d\s\+\-\*\/\(\)\.\^\%]+([\?\=]|[\.\?\!]?\s*(return|give|respond|answer|only|in)\b[\w\s\.]*)*$", re.IGNORECASE),
+    re.compile(r"^(what is|what was|what are|what were|who is|who was|where is|where was|when is|when was|why is|why was|how many|define|translate|meaning of|synonym for|convert \d+)\s+[\w\s\-\.,'\"]+\??$", re.IGNORECASE),
+    re.compile(r"^(fix typo|capitalize|lowercase|uppercase)\b", re.IGNORECASE),
 ]
 
 
 class ModernBertClassifier:
-    def __init__(self, model_id: str = "answerdotai/ModernBERT-large", use_onnx: bool = True, use_npu: bool = True):
+    def __init__(
+        self,
+        model_id: str = "answerdotai/ModernBERT-large",
+        use_onnx: bool = True,
+        use_npu: bool = True,
+        max_tokens: int = 2048,
+    ):
         self.model_id = model_id
         self.use_onnx = use_onnx
         self.use_npu = use_npu
+        self.max_tokens = max_tokens
         self.tokenizer = None
         self.ort_session = None
         self.torch_model = None
@@ -47,7 +64,44 @@ class ModernBertClassifier:
         
         self.models_dir = Path(__file__).resolve().parent.parent / "models"
         self.models_dir.mkdir(parents=True, exist_ok=True)
-        self.onnx_path = self.models_dir / "modernbert_large.onnx"
+        int8_path = self.models_dir / "modernbert_large_int8.onnx"
+        self.onnx_path = int8_path if int8_path.exists() else (self.models_dir / "modernbert_large.onnx")
+
+    def tokenize_with_middle_truncation(self, text: str, max_length: Optional[int] = None) -> dict:
+        """
+        Tokenizes text with head-tail middle truncation.
+        Preserves the head (system framing/context) and tail (final instructions/constraints).
+        """
+        if max_length is None:
+            max_length = self.max_tokens
+        cls_id = self.tokenizer.cls_token_id or 50281
+        sep_id = self.tokenizer.sep_token_id or 50282
+        budget = max(2, max_length - 2)
+
+        raw_ids = self.tokenizer.encode(text, add_special_tokens=False)
+        if len(raw_ids) > budget:
+            head_len = budget // 2
+            tail_len = budget - head_len
+            token_ids = raw_ids[:head_len] + raw_ids[-tail_len:]
+            logger.info(f"[Classifier] Middle-truncated prompt: {len(raw_ids)} -> {len(token_ids)} tokens ({head_len} head + {tail_len} tail, budget: {max_length})")
+        else:
+            token_ids = raw_ids
+
+        final_ids = [cls_id] + token_ids + [sep_id]
+        mask = [1] * len(final_ids)
+
+        if self.ort_session:
+            return {
+                "input_ids": np.array([final_ids], dtype=np.int64),
+                "attention_mask": np.array([mask], dtype=np.int64)
+            }
+        elif self.torch_model:
+            import torch
+            return {
+                "input_ids": torch.tensor([final_ids], dtype=torch.long),
+                "attention_mask": torch.tensor([mask], dtype=torch.long)
+            }
+        return {"input_ids": final_ids, "attention_mask": mask}
 
     def lazy_load(self):
         """Load tokenizer, NPU device, and model weights on first use."""
@@ -137,17 +191,27 @@ class ModernBertClassifier:
         token_count_est = max(1, length // 4)
 
         heuristic_score = 0.0
-        # Code fence detection
+        # Code fence detection (prompts containing markdown code blocks)
         code_blocks = len(re.findall(r"```[\s\S]*?```", clean_prompt))
         if code_blocks > 0:
-            heuristic_score += min(0.35, code_blocks * 0.15)
+            heuristic_score += min(0.35, max(0.20, code_blocks * 0.15))
 
-        # Complex technical keywords
-        matches = sum(1 for pat in COMPLEX_PATTERNS if pat.search(clean_prompt))
-        if matches > 0:
-            heuristic_score += min(0.35, matches * 0.12)
+        # Explicit code syntax markers (function/class definitions)
+        code_syntax = bool(re.search(r"\b(def\s+\w+\(|class\s+\w+[\(:]|fn\s+\w+\(|function\s+\w+\()", clean_prompt))
+        if code_syntax:
+            heuristic_score += 0.20
 
-        # Length factor (e.g. prompts > 2,000 chars are inherently more intricate)
+        # Programming, script generation, and debugging requests
+        coding_matches = sum(1 for pat in CODING_PATTERNS if pat.search(clean_prompt))
+        if coding_matches > 0:
+            heuristic_score += min(0.35, coding_matches * 0.15)
+
+        # Complex architectural & algorithmic keywords
+        complex_matches = sum(1 for pat in COMPLEX_PATTERNS if pat.search(clean_prompt))
+        if complex_matches > 0:
+            heuristic_score += min(0.35, complex_matches * 0.12)
+
+        # Length factor (e.g. prompts > 2,500 chars are inherently more intricate)
         if length > 2500:
             heuristic_score += min(0.25, (length - 2500) / 10000.0)
 
@@ -156,14 +220,8 @@ class ModernBertClassifier:
         try:
             self.lazy_load()
             if self.tokenizer and (self.ort_session or self.torch_model):
-                # Tokenize (supporting up to 8192 tokens)
-                inputs = self.tokenizer(
-                    clean_prompt,
-                    max_length=8192,
-                    truncation=True,
-                    padding=True,
-                    return_tensors="np" if self.ort_session else "pt"
-                )
+                # Tokenize with head-tail middle truncation (preserving framing & latest user prompt)
+                inputs = self.tokenize_with_middle_truncation(clean_prompt, max_length=self.max_tokens)
 
                 if self.ort_session:
                     ort_inputs = {
@@ -184,8 +242,8 @@ class ModernBertClassifier:
         except Exception as e:
             logger.warning(f"Error during ModernBERT inference: {e}")
 
-        # 4. Synthesize final score (Weighted Blend)
-        final_score = (model_score * 0.60) + (heuristic_score * 0.40)
+        # 4. Synthesize final score (Weighted Blend: 55% model, 45% heuristics)
+        final_score = (model_score * 0.55) + (heuristic_score * 0.45)
         final_score = max(0.0, min(1.0, final_score))
         
         return final_score
@@ -194,5 +252,6 @@ class ModernBertClassifier:
 classifier = ModernBertClassifier(
     model_id=os.getenv("MODERNBERT_MODEL_ID", "answerdotai/ModernBERT-large"),
     use_onnx=os.getenv("MODERNBERT_USE_ONNX", "true").lower() in ("true", "1", "yes"),
-    use_npu=os.getenv("NPU_ENABLED", "true").lower() in ("true", "1", "yes")
+    use_npu=os.getenv("NPU_ENABLED", "true").lower() in ("true", "1", "yes"),
+    max_tokens=int(os.getenv("CLASSIFIER_MAX_TOKENS", "2048"))
 )

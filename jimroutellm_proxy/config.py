@@ -70,15 +70,16 @@ class Settings:
 
         # --- Router & ModernBERT-Large Classifier ---
         self.router_type: str = os.getenv("ROUTER_TYPE", "modernbert").strip().lower()
-        self.routing_threshold: float = float(os.getenv("ROUTING_THRESHOLD", "0.45"))
+        self.routing_threshold: float = float(os.getenv("ROUTING_THRESHOLD", "0.28"))
         self.modernbert_model_id: str = os.getenv("MODERNBERT_MODEL_ID", "answerdotai/ModernBERT-large").strip()
         self.modernbert_use_onnx: bool = os.getenv("MODERNBERT_USE_ONNX", "true").lower() in ("true", "1", "yes")
+        self.classifier_max_tokens: int = int(os.getenv("CLASSIFIER_MAX_TOKENS", "2048"))
 
         # --- Heterogeneous LAN Cluster Configuration ---
         self.lan_nodes: List[NodeConfig] = self._load_lan_nodes()
 
-        # --- Local Target Models (Gemma 4 12B & Gemma 4 26B-A4B) ---
-        self.local_easy_model: str = os.getenv("LOCAL_EASY_MODEL", "google/gemma-4-12b-qat").strip()
+        # --- Local Target Models (Gemma 4 E2B & Gemma 4 26B-A4B) ---
+        self.local_easy_model: str = os.getenv("LOCAL_EASY_MODEL", "google/gemma-4-e2b").strip()
         self.local_hard_model: str = os.getenv("LOCAL_HARD_MODEL", "google/gemma-4-26b-a4b-qat").strip()
         self.local_vision_model: str = os.getenv("LOCAL_VISION_MODEL", "google/gemma-4-26b-a4b-qat").strip()
         self.local_lm_studio_url: str = os.getenv("LOCAL_LM_STUDIO_URL", "http://127.0.0.1:1234/v1").rstrip("/")
@@ -86,6 +87,7 @@ class Settings:
         # Dedicated vision shortcut fallback
         self.lm_studio_vision_url: str = os.getenv("LM_STUDIO_VISION_URL", "http://127.0.0.1:1234/v1").rstrip("/")
         self.lm_studio_vision_model: str = os.getenv("LM_STUDIO_VISION_MODEL", "google/gemma-4-26b-a4b-qat").strip()
+        self.all_models_support_vision: bool = os.getenv("ALL_MODELS_SUPPORT_VISION", "true").lower() in ("true", "1", "yes")
 
         # --- MCP Scaffolding Settings ---
         self.enable_mcp_routing: bool = os.getenv("ENABLE_MCP_ROUTING", "false").lower() in ("true", "1", "yes")

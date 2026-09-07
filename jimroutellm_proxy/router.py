@@ -46,6 +46,7 @@ class HybridRouter:
         self.router_type = settings.router_type
         self.default_threshold = settings.routing_threshold
         self.history = deque(maxlen=100)
+        self.session_nodes: Dict[str, str] = {}
         self.stats = {
             "total_requests": 0,
             "routed_to_local": 0,
@@ -184,7 +185,7 @@ class HybridRouter:
                     capability="vision" if is_vision else None,
                     session_key=session_key
                 )
-                target_model = selected_node.get_current_model()
+                target_model = requested_model if (requested_model and requested_model.lower() not in ["local", "lmstudio", "lm-studio"]) else selected_node.get_current_model()
 
                 decision = RoutingDecision(
                     target="local",
@@ -213,12 +214,31 @@ class HybridRouter:
         dev_tag = "NPU" if classifier.npu_active else "CPU"
 
         # -------------------------------------------------------------
-        # 3. Dual Multimodal + Thinking Routing
-        #    • Both google/gemma-4-12b-qat & google/gemma-4-26b-a4b-qat support Vision & Thinking
-        #    • Hard tasks (score >= threshold) -> google/gemma-4-26b-a4b-qat (AMD)
-        #    • Easy tasks (score < threshold)  -> google/gemma-4-12b-qat (NVIDIA)
+        # 3. Multimodal & Tiered Complexity Routing
+        #    • If ALL_MODELS_SUPPORT_VISION is False:
+        #      Images must route to dedicated vision model (preventing 400 errors on text-only models).
+        #    • If ALL_MODELS_SUPPORT_VISION is True:
+        #      Images follow the normal complexity score (easy image -> E2B, hard image -> 26B)
+        #      without hogging the strong model.
         # -------------------------------------------------------------
-        if score >= threshold:
+        prior_node_id = self.session_nodes.get(session_key) if session_key else None
+        prior_node = node_manager.nodes.get(prior_node_id) if prior_node_id else None
+        prior_is_heavy = prior_node and ("heavy" in prior_node.capabilities or "hard" in prior_node.capabilities)
+
+        if is_vision and not settings.all_models_support_vision:
+            target_model = settings.local_vision_model
+            selected_node = node_manager.find_node_by_model(target_model) or node_manager.select_node(
+                capability="vision", session_key=session_key
+            )
+            reason = f"Multimodal image query (ALL_MODELS_SUPPORT_VISION=false) -> routed to dedicated vision model {target_model} ({selected_node.name})"
+            fallback = [f"openai/{settings.local_hard_model}"] if target_model != settings.local_hard_model else []
+        elif prior_is_heavy:
+            target_model = prior_node.primary_model
+            selected_node = prior_node
+            task_type = "multimodal vision/thinking" if is_vision else "text/thinking"
+            reason = f"Sticky session affinity ({session_key}) preserves {target_model} KV cache ({selected_node.name})"
+            fallback = [f"openai/{settings.local_easy_model}"]
+        elif score >= threshold:
             target_model = settings.local_hard_model
             selected_node = node_manager.find_node_by_model(target_model) or node_manager.select_node(
                 capability="heavy", session_key=session_key
@@ -234,6 +254,11 @@ class HybridRouter:
             task_type = "multimodal vision/thinking" if is_vision else "text/thinking"
             reason = f"Easy {task_type} task (Score {score:.3f} < {threshold:.2f} via {dev_tag} classifier) -> routed to {target_model} ({selected_node.name})"
             fallback = [f"openai/{settings.local_hard_model}"]
+
+        if session_key and selected_node:
+            self.session_nodes[session_key] = selected_node.id
+            if len(self.session_nodes) > 2000:
+                self.session_nodes.pop(next(iter(self.session_nodes)))
 
         self.stats["routed_to_local"] += 1
         decision = RoutingDecision(

@@ -2,7 +2,7 @@
 
 **JimRouteLLM** is an OpenAI-compatible proxy and routing engine designed for local developer tooling, autonomous coding agents (e.g., Open Interpreter), and heterogeneous LAN clusters. 
 
-It pairs an **AMD XDNA 1 NPU-accelerated ModernBERT classifier** with tiered routing across dual local models supporting native **Thinking** and **Multimodal Vision**, integrated with **SearXNG Web Search** and **Playwright Headless Chrome** over the Model Context Protocol (MCP).
+It pairs an **INT8-quantized ModernBERT classifier** (with AMD XDNA 1 NPU initialization and AVX-512 VNNI CPU acceleration) with tiered routing across dual local models supporting native **Thinking** and **Multimodal Vision**, integrated with **SearXNG Web Search** and **Playwright Headless Chrome** over the Model Context Protocol (MCP).
 
 [**Installation Guide**](INSTALL.md) • [**Hardware Profile (HP ZBook)**](DEVICES.md) • [**Testing & Benchmarks**](TESTING.md) • [**Architecture Decisions**](ARCHITECTURE_DECISIONS.md) • [**Citation**](CITATION.cff)
 
@@ -18,25 +18,26 @@ It pairs an **AMD XDNA 1 NPU-accelerated ModernBERT classifier** with tiered rou
                                                     ▼
                                      ┌──────────────────────────────┐
                                      │         JimRouteLLM          │
-                                     │  • Sticky KV-Cache Hashing   │
+                                     │  • Sticky KV-Cache Affinity  │
                                      │  • MCP Domain Tool Filter    │
+                                     │  • Head-Tail Middle Truncator│
                                      └──────────────┬───────────────┘
                                                     │
-                                       AMD Ryzen AI XDNA 1 NPU
-                                     [ ModernBERT-Large INT8/ONNX ]
+                                     ModernBERT-Large INT8 Engine
+                                    [ AVX-512 VNNI / XDNA 1 Device ]
                                       Evaluates Prompt Complexity
                                                     │
-                                          Score >= 0.45 (Hard)?
+                                          Score >= 0.28 (Hard)?
                                            /                 \
                                        [ YES ]             [ NO ]
                                           │                   │
                                           ▼                   ▼
                      ┌───────────────────────────────┐   ┌───────────────────────────────┐
-                     │      `meta/muse-glimmer`      │   │    `google/gemma-4-12b-qat`   │
-                     │  • 28B Heavy Reasoning Model  │   │  • 12B Fast Thinking Model    │
+                     │  `google/gemma-4-26b-a4b-qat` │   │     `google/gemma-4-e2b`      │
+                     │  • 26B Heavy Reasoning Model  │   │  • High-Speed Model (72 tps)  │
                      │  • Multimodal Vision Input    │   │  • Multimodal Vision Input    │
                      │  • Deep Code/Math & Arch      │   │  • Fast Generation / Easy     │
-                     │  • 131K Context, Single Slot  │   │  • 256K Context, Single Slot  │
+                     │  • 128K Context, Single Slot  │   │  • 128K Context, Single Slot  │
                      │  • AMD GPU (Vulkan/ROCm)      │   │  • NVIDIA Ada GPU (CUDA)      │
                      └───────────────────────────────┘   └───────────────────────────────┘
                                            \               /
@@ -51,22 +52,23 @@ It pairs an **AMD XDNA 1 NPU-accelerated ModernBERT classifier** with tiered rou
 
 ## Core Features
 
-### 1. Hardware-Accelerated Routing via AMD XDNA 1 NPU
-- **Device**: `/dev/accel/accel0` (`RyzenAI-npu1`) via ONNX Runtime & `pyxrt`.
-- **Classifier**: `answerdotai/ModernBERT-large` (395M parameters, 8k context window).
-- **Latency**: Sub-40ms prompt complexity scoring offloaded entirely from the CPU and GPU.
+### 1. High-Performance INT8 ModernBERT Classifier & Middle-Truncation
+- **Quantized Engine**: `models/modernbert_large_int8.onnx` (379.4 MB, compressed 4x from 1.58 GB FP32).
+- **Execution**: Optimized on Zen 4 CPU with AVX-512 VNNI vector instructions yielding 18–35ms prompt scoring for standard prompts and 0.0ms for heuristic fast paths.
+- **Hardware Profile**: Device `/dev/accel/accel0` (`RyzenAI-npu1`, device ID `0x1502`) managed via `pyxrt` and `amdxdna`.
+- **Head-Tail Middle Truncation**: Prompts exceeding `CLASSIFIER_MAX_TOKENS` (default: 2048) are dynamically truncated from the center, strictly preserving both the Head ($N/2$ tokens of system framing, agent personas, and task definitions) and the Tail ($N/2$ tokens of final constraints, inputs, and latest user questions).
 
 ### 2. Dual Thinking & Multimodal Vision Endpoints
-Both loaded endpoints support native reasoning (`reasoning_content` chain-of-thought tokens) and image inputs:
-- **`google/gemma-4-12b-qat`** (7.15 GB, 256K context, 1 slot):
-  Primary endpoint for general tasks, rapid code generation, and standard vision questions.
-- **`meta/muse-glimmer`** (18.16 GB, 131K context, 1 slot):
-  Heavyweight reasoning engine for complex distributed architectures, formal proofs, and deep vision analysis.
-- **Single-Slot Memory Efficiency**: Models are pinned to a single active slot to prevent DDR5 memory bandwidth contention during KV cache lookups.
+Both loaded endpoints support native reasoning (`reasoning_content` chain-of-thought tokens) and image inputs (`ALL_MODELS_SUPPORT_VISION=true`):
+- **`google/gemma-4-e2b`** (Q6_K running at 72 tokens/sec):
+  Primary endpoint for low-complexity queries, standard questions, quick formatting, and rapid vision tasks.
+- **`google/gemma-4-26b-a4b-qat`** (Heavyweight MoE reasoning engine):
+  Heavyweight reasoning engine for complex distributed architectures, algorithm design, formal proofs, and multi-file codebases.
+- **Single-Slot Memory Efficiency**: Models are pinned to single active slots to prevent DDR5 memory bandwidth contention during KV cache lookups.
 
 ### 3. Sticky KV-Cache Preservation
 - Standard round-robin proxies invalidate prompt caches on local inference engines.
-- JimRouteLLM implements consistent hashing over `X-Session-ID`, `X-Conversation-ID`, or user identity, keeping multi-turn conversations sticky to the same model instance.
+- JimRouteLLM implements consistent hashing over `X-Session-ID`, `X-Conversation-ID`, or user identity, keeping multi-turn conversations sticky to the same model instance and node. Once a session engages the heavy model, sticky session affinity preserves the heavy KV-cache across follow-up turns to eliminate context re-ingestion latency.
 
 ### 4. Integrated Model Context Protocol (MCP) Scaffolding
 - **SearXNG Web Search** (`mcp_searxng_server.py`):
@@ -132,18 +134,20 @@ Copy `.env.example` to `.env` and adjust as needed:
 PROXY_HOST=0.0.0.0
 PROXY_PORT=8000
 
-# Routing Engine & NPU Classifier
+# Routing Engine & ModernBERT INT8 Classifier
 ROUTER_TYPE=modernbert
-ROUTING_THRESHOLD=0.45
+ROUTING_THRESHOLD=0.28
 MODERNBERT_MODEL_ID=answerdotai/ModernBERT-large
 MODERNBERT_USE_ONNX=true
 NPU_ENABLED=true
+CLASSIFIER_MAX_TOKENS=2048
 
-# Local Models (LM Studio @ 127.0.0.1:1234)
-LOCAL_EASY_MODEL=google/gemma-4-12b-qat
-LOCAL_HARD_MODEL=meta/muse-glimmer
-LOCAL_VISION_MODEL=meta/muse-glimmer
+# Local Target Models (LM Studio @ 127.0.0.1:1234)
+LOCAL_EASY_MODEL=google/gemma-4-e2b
+LOCAL_HARD_MODEL=google/gemma-4-26b-a4b-qat
+LOCAL_VISION_MODEL=google/gemma-4-26b-a4b-qat
 LOCAL_LM_STUDIO_URL=http://127.0.0.1:1234/v1
+ALL_MODELS_SUPPORT_VISION=true
 
 # MCP Scaffolding
 ENABLE_MCP_ROUTING=true
