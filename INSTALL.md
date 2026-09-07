@@ -152,7 +152,7 @@ curl http://127.0.0.1:8000/health
 
 ## 7. Open Interpreter Client Integration
 
-Configure Open Interpreter in `~/.openinterpreter/config.toml`:
+Configure Open Interpreter in `~/.openinterpreter/config.toml` with the desired MCP servers (`playwright`, `searxng`, etc.). Open Interpreter considers all tools active, while JimRouteLLM transparently prunes tools unneeded for the current prompt:
 
 ```toml
 model = "routellm"
@@ -163,13 +163,13 @@ name = "JimRouteLLM"
 base_url = "http://127.0.0.1:8000/v1"
 wire_api = "chat"
 
-[mcp_servers.searxng]
-command = "/home/jac-jim/src/jac-jim/mgmt/JimRouteLLM/venv/bin/python"
-args = ["/home/jac-jim/src/jac-jim/mgmt/JimRouteLLM/mcp_searxng_server.py"]
-
 [mcp_servers.playwright]
 command = "npx"
 args = ["-y", "@playwright/mcp", "--headless", "--executable-path", "/usr/local/bin/google-chrome", "--caps", "vision"]
+
+[mcp_servers.searxng]
+command = "python3"
+args = ["/home/jac-jim/src/jac-jim/mgmt/JimRouteLLM/mcp_searxng_server.py"]
 
 [projects."/home/jac-jim/src/jac-jim/mgmt"]
 trust_level = "trusted"

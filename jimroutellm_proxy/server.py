@@ -253,9 +253,10 @@ async def chat_completions(request: Request):
     if max_tokens:
         litellm_kwargs["max_tokens"] = max_tokens
 
-    # Dynamic MCP Tool Pruning (Prunes unused tool schemas to save prompt tokens & reduce TTFT)
+    # Dynamic MCP Tool Pruning
+    active_domains = mcp_classifier.classify_conversation(messages) if settings.enable_mcp_routing else []
+
     if settings.enable_mcp_routing and tools:
-        active_domains = mcp_classifier.classify_conversation(messages)
         max_tools = settings.mcp_max_local_tools if decision.target == "local" else settings.mcp_max_cloud_tools
         prompt_text = router.extract_prompt_text(messages)
         pruned_tools, orig_cnt, pruned_cnt, tokens_saved = mcp_classifier.filter_tools(
@@ -294,7 +295,7 @@ async def chat_completions(request: Request):
         litellm_kwargs["api_key"] = settings.anthropic_api_key
 
     # -------------------------------------------------------------
-    # Streaming Response (SSE)
+    # Streaming Response (SSE) - Standard Pass-through
     # -------------------------------------------------------------
     if stream:
         async def stream_generator():
@@ -322,7 +323,7 @@ async def chat_completions(request: Request):
         )
 
     # -------------------------------------------------------------
-    # Non-Streaming JSON Response
+    # Non-Streaming JSON Response - Standard Pass-through
     # -------------------------------------------------------------
     try:
         response = await litellm.acompletion(**litellm_kwargs)

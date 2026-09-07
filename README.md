@@ -89,7 +89,7 @@ Both loaded endpoints support native reasoning (`reasoning_content` chain-of-tho
 
 ## Open Interpreter Integration
 
-Open Interpreter is pre-configured to utilize JimRouteLLM and both MCP servers in `~/.openinterpreter/config.toml`:
+Open Interpreter is configured with all available MCP servers in `~/.openinterpreter/config.toml`. While Open Interpreter considers all tools active at all times, **JimRouteLLM acts as a dynamic negative tool pruner**: it inspects each prompt in <0.2ms and automatically strips out irrelevant tool schemas before sending the prompt to the LLM, preserving fast Time-To-First-Token (<1s) while allowing Open Interpreter to natively execute the requested tool calls:
 
 ```toml
 model = "routellm"
@@ -100,13 +100,13 @@ name = "JimRouteLLM"
 base_url = "http://127.0.0.1:8000/v1"
 wire_api = "chat"
 
-[mcp_servers.searxng]
-command = "/home/jac-jim/src/jac-jim/mgmt/JimRouteLLM/venv/bin/python"
-args = ["/home/jac-jim/src/jac-jim/mgmt/JimRouteLLM/mcp_searxng_server.py"]
-
 [mcp_servers.playwright]
 command = "npx"
 args = ["-y", "@playwright/mcp", "--headless", "--executable-path", "/usr/local/bin/google-chrome", "--caps", "vision"]
+
+[mcp_servers.searxng]
+command = "python3"
+args = ["/home/jac-jim/src/jac-jim/mgmt/JimRouteLLM/mcp_searxng_server.py"]
 ```
 
 To run an interactive session:

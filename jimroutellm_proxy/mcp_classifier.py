@@ -85,6 +85,8 @@ DOMAIN_KEYWORDS: Dict[str, Set[str]] = {
         "current events", "latest news", "latest documentation", "search query",
         "searxng", "browse the web", "search internet", "browse internet", "web_search",
         "look online", "find online", "search for", "live search", "lookup",
+        "iran", "war", "status", "conflict", "update", "updates", "latest", "recent", "developments",
+        "today", "yesterday", "news",
     },
     "browser": {
         "browser", "browse", "webpage", "website", "url", "urls", "navigate", "navigation",
@@ -118,8 +120,11 @@ DOMAIN_PATTERNS: Dict[str, List[re.Pattern]] = {
         re.compile(r"\b(canto|dam|album\s*id|asset\s*id|download\s*preset)\b", re.IGNORECASE),
     ],
     "web_search": [
-        re.compile(r"\b(search\s*(the\s*)?(web|internet|online)|browse\s*(the\s*)?(web|internet|online)|look\s*up\s*online|searxng)\b", re.IGNORECASE),
+        re.compile(r"\b(search\s*(the\s*)?(web|internet|online)|browse\s*(the\s*)?(web|internet|online)|look\s*up\s*online|searxng|google)\b", re.IGNORECASE),
         re.compile(r"\b(current\s*news|latest\s*news|news\s*regarding|search\s*for)\b", re.IGNORECASE),
+        re.compile(r"\b(current|latest|ongoing|recent)\b.*\b(status|situation|update|updates|developments|conflict|war|news|event|events)\b", re.IGNORECASE),
+        re.compile(r"\b(status\s+of|what('s|\s+is)\s+the\s+status|what('s|\s+is)\s+happening\s+(in|with))\b", re.IGNORECASE),
+        re.compile(r"\b(who\s+won|score\s+of|stock\s+price\s+of|weather\s+in)\b", re.IGNORECASE),
     ],
     "browser": [
         re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE),
