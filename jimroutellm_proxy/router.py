@@ -214,9 +214,9 @@ class HybridRouter:
 
         # -------------------------------------------------------------
         # 3. Dual Multimodal + Thinking Routing
-        #    • Both google/gemma-4-12b-qat & meta/muse-glimmer support Vision & Thinking
-        #    • Hard tasks (score >= threshold) -> meta/muse-glimmer
-        #    • Easy tasks (score < threshold)  -> google/gemma-4-12b-qat
+        #    • Both google/gemma-4-12b-qat & google/gemma-4-26b-a4b-qat support Vision & Thinking
+        #    • Hard tasks (score >= threshold) -> google/gemma-4-26b-a4b-qat (AMD)
+        #    • Easy tasks (score < threshold)  -> google/gemma-4-12b-qat (NVIDIA)
         # -------------------------------------------------------------
         if score >= threshold:
             target_model = settings.local_hard_model

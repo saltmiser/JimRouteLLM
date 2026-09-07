@@ -17,6 +17,11 @@ from jimroutellm_proxy.router import router, RoutingDecision
 from jimroutellm_proxy.nodes import node_manager
 from jimroutellm_proxy.mcp_registry import mcp_registry, clean_openai_tool
 from jimroutellm_proxy.mcp_classifier import mcp_classifier
+from jimroutellm_proxy.mcp_gateway import (
+    get_all_gateway_tools,
+    dispatch_mcp_call,
+    process_jsonrpc_request,
+)
 
 logger = logging.getLogger("jimroutellm.server")
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(name)s: %(message)s")
@@ -199,6 +204,95 @@ async def get_dashboard_stats():
             for d in list(router.history)[-20:]
         ]
     }
+
+
+# -------------------------------------------------------------
+# Unified MCP Gateway Endpoints (HTTP REST & SSE)
+# -------------------------------------------------------------
+mcp_sse_sessions: Dict[str, asyncio.Queue] = {}
+
+
+@app.get("/mcp/tools")
+async def get_mcp_tools():
+    """REST endpoint listing all tools aggregated across MCP servers and built-in cluster tools."""
+    tools = await get_all_gateway_tools()
+    return {"tools": tools, "count": len(tools)}
+
+
+@app.post("/mcp/call")
+async def call_mcp_tool(body: Dict[str, Any]):
+    """REST endpoint to invoke any MCP tool directly."""
+    tool_name = body.get("name")
+    arguments = body.get("arguments", {})
+    if not tool_name:
+        raise HTTPException(status_code=400, detail="Missing 'name' in request body")
+    try:
+        result = await dispatch_mcp_call(tool_name, arguments)
+        return {"status": "success", "result": result}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/mcp/sse")
+@app.get("/mcp")
+async def mcp_sse(request: Request):
+    """MCP standard Server-Sent Events connection endpoint."""
+    session_id = str(uuid.uuid4())
+    queue: asyncio.Queue = asyncio.Queue()
+    mcp_sse_sessions[session_id] = queue
+
+    async def event_stream():
+        # Step 1 of MCP SSE spec: emit 'endpoint' event with full URL for POST messages
+        endpoint_url = f"http://127.0.0.1:8000/mcp/messages?session_id={session_id}"
+        yield f"event: endpoint\r\ndata: {endpoint_url}\r\n\r\n"
+        try:
+            while True:
+                if await request.is_disconnected():
+                    break
+                try:
+                    msg = await asyncio.wait_for(queue.get(), timeout=15.0)
+                    yield f"event: message\r\ndata: {json.dumps(msg)}\r\n\r\n"
+                except asyncio.TimeoutError:
+                    yield ": keepalive\r\n\r\n"
+        finally:
+            mcp_sse_sessions.pop(session_id, None)
+
+    return StreamingResponse(
+        event_stream(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",
+        }
+    )
+
+
+@app.post("/mcp/sse")
+@app.post("/mcp/messages")
+@app.post("/mcp")
+async def mcp_post_handler(request: Request, session_id: Optional[str] = Query(None)):
+    """Handle incoming JSON-RPC 2.0 requests from MCP clients (Streamable HTTP & SSE)."""
+    try:
+        body = await request.json()
+    except Exception:
+        raise HTTPException(status_code=400, detail="Invalid JSON-RPC payload")
+
+    resp = await process_jsonrpc_request(body)
+
+    # Broadcast to SSE queue if active
+    if session_id and session_id in mcp_sse_sessions:
+        if resp is not None:
+            await mcp_sse_sessions[session_id].put(resp)
+    elif mcp_sse_sessions:
+        for queue in mcp_sse_sessions.values():
+            if resp is not None:
+                await queue.put(resp)
+
+    # Return direct JSON response to satisfy Streamable HTTP & POST clients
+    if resp is not None:
+        return JSONResponse(status_code=200, content=resp)
+    return JSONResponse(status_code=202, content={"status": "accepted"})
 
 
 @app.post("/v1/chat/completions")

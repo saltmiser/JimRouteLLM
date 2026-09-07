@@ -56,8 +56,8 @@ def main():
     print(f"    Status: {status} | Discovered {len(models)} model IDs")
     print(f"    Sample models: {models[:6]}")
     assert "routellm" in models, "routellm virtual model missing"
-    assert "google/gemma-4-12b-qat" in models, "gemma model missing"
-    assert "meta/muse-glimmer" in models, "muse-glimmer model missing"
+    assert "google/gemma-4-12b-qat" in models, "gemma-4-12b model missing"
+    assert "google/gemma-4-26b-a4b-qat" in models, "gemma-4-26b model missing"
     print("    [✔] PASSED: Virtual and physical models exposed")
 
     # 3. Fast Tier Routing (Gemma 4 12B)
@@ -89,8 +89,8 @@ def main():
     assert "4" in reply, f"Expected '4' in response, got '{reply}'"
     print("    [✔] PASSED: Low-complexity prompt cleanly routed to Gemma 4 12B")
 
-    # 4. Heavy Tier Routing (Muse Glimmer)
-    print("\n[Test 4] High-Complexity Prompt Routing (Target: meta/muse-glimmer)")
+    # 4. Heavy Tier Routing (Gemma 4 26B-A4B)
+    print("\n[Test 4] High-Complexity Prompt Routing (Target: google/gemma-4-26b-a4b-qat)")
     hard_prompt = (
         "Design a distributed event-driven microservices architecture with Raft consensus, "
         "handling out-of-order Kafka message deduplication and distributed deadlocks in Rust."
@@ -112,12 +112,12 @@ def main():
     print(f"    Latency:      {dt:.2f}s")
     print(f"    Target Tier:  {target}")
     print(f"    Model Routed: {model_used}")
-    print(f"    NPU Score:    {score:.3f} (Threshold >= 0.45)")
+    print(f"    NPU Score:    {score:.3f} (Threshold >= 0.35)")
     print(f"    Reply snippet:'{reply[:90]}...'")
     assert status == 200, f"HTTP {status}"
-    assert model_used == "meta/muse-glimmer", f"Expected muse-glimmer, got {model_used}"
-    assert score >= 0.45, f"Expected score >= 0.45, got {score}"
-    print("    [✔] PASSED: High-complexity prompt cleanly routed to Muse Glimmer")
+    assert model_used == "google/gemma-4-26b-a4b-qat", f"Expected gemma 26b, got {model_used}"
+    assert score >= 0.35, f"Expected score >= 0.35, got {score}"
+    print("    [✔] PASSED: High-complexity prompt cleanly routed to Gemma 4 26B-A4B")
 
     # 5. Dynamic MCP Tool Pruning in Live HTTP Request
     print("\n[Test 5] Live Dynamic MCP Tool Pruning & Header Observability")

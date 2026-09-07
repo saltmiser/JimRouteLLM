@@ -77,15 +77,15 @@ class Settings:
         # --- Heterogeneous LAN Cluster Configuration ---
         self.lan_nodes: List[NodeConfig] = self._load_lan_nodes()
 
-        # --- Local Target Models (Gemma 4 12B & Muse Glimmer) ---
+        # --- Local Target Models (Gemma 4 12B & Gemma 4 26B-A4B) ---
         self.local_easy_model: str = os.getenv("LOCAL_EASY_MODEL", "google/gemma-4-12b-qat").strip()
-        self.local_hard_model: str = os.getenv("LOCAL_HARD_MODEL", "meta/muse-glimmer").strip()
-        self.local_vision_model: str = os.getenv("LOCAL_VISION_MODEL", "meta/muse-glimmer").strip()
+        self.local_hard_model: str = os.getenv("LOCAL_HARD_MODEL", "google/gemma-4-26b-a4b-qat").strip()
+        self.local_vision_model: str = os.getenv("LOCAL_VISION_MODEL", "google/gemma-4-26b-a4b-qat").strip()
         self.local_lm_studio_url: str = os.getenv("LOCAL_LM_STUDIO_URL", "http://127.0.0.1:1234/v1").rstrip("/")
 
         # Dedicated vision shortcut fallback
         self.lm_studio_vision_url: str = os.getenv("LM_STUDIO_VISION_URL", "http://127.0.0.1:1234/v1").rstrip("/")
-        self.lm_studio_vision_model: str = os.getenv("LM_STUDIO_VISION_MODEL", "meta/muse-glimmer").strip()
+        self.lm_studio_vision_model: str = os.getenv("LM_STUDIO_VISION_MODEL", "google/gemma-4-26b-a4b-qat").strip()
 
         # --- MCP Scaffolding Settings ---
         self.enable_mcp_routing: bool = os.getenv("ENABLE_MCP_ROUTING", "false").lower() in ("true", "1", "yes")
