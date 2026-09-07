@@ -73,6 +73,7 @@ class Settings:
         self.routing_threshold: float = float(os.getenv("ROUTING_THRESHOLD", "0.28"))
         self.modernbert_model_id: str = os.getenv("MODERNBERT_MODEL_ID", "answerdotai/ModernBERT-large").strip()
         self.modernbert_use_onnx: bool = os.getenv("MODERNBERT_USE_ONNX", "true").lower() in ("true", "1", "yes")
+        self.classifier_device: str = os.getenv("CLASSIFIER_DEVICE", "cuda").strip().lower()
         self.classifier_max_tokens: int = int(os.getenv("CLASSIFIER_MAX_TOKENS", "2048"))
 
         # --- Heterogeneous LAN Cluster Configuration ---

@@ -52,9 +52,10 @@ It pairs an **INT8-quantized ModernBERT classifier** (accelerated by AMD Zen 4 A
 
 ## Core Features
 
-### 1. High-Performance INT8 ModernBERT Classifier & Middle-Truncation
-- **Quantized Engine**: `models/modernbert_large_int8.onnx` (379.4 MB, compressed 4x from 1.58 GB FP32).
-- **Execution**: Optimized on Zen 4 CPU with AVX-512 VNNI vector instructions yielding 18–35ms prompt scoring for standard prompts and 0.0ms for heuristic fast paths.
+### 1. High-Performance ModernBERT Classifier & Dual Device Execution
+- **Quantized / FP16 Engines**:
+  - `CLASSIFIER_DEVICE=cuda`: Executes in PyTorch FP16 directly on the NVIDIA RTX 2000 Ada laptop GPU (`CUDA-Ada`). Yields ultra-low latency (**~8–11ms** inference, 116ms at 2,048 tokens, 808ms at 8,192 tokens) while consuming only ~972 MiB of VRAM.
+  - `CLASSIFIER_DEVICE=cpu`: Executes the INT8 quantized ONNX graph (`models/modernbert_large_int8.onnx`, 379.4 MB) via `CPUExecutionProvider` on the Zen 4 CPU utilizing AVX-512 VNNI vector instructions (yielding 18–35ms prompt scoring and 0 MB VRAM).
 - **Hardware Profile**: Device `/dev/accel/accel0` (`RyzenAI-npu1`, device ID `0x1502`) managed via `pyxrt` and `amdxdna`.
 - **Head-Tail Middle Truncation**: Prompts exceeding `CLASSIFIER_MAX_TOKENS` (default: 2048) are dynamically truncated from the center, strictly preserving both the Head ($N/2$ tokens of system framing, agent personas, and task definitions) and the Tail ($N/2$ tokens of final constraints, inputs, and latest user questions).
 

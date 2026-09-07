@@ -211,7 +211,7 @@ class HybridRouter:
         threshold = threshold_override if threshold_override is not None else self.default_threshold
 
         score = classifier.calculate_complexity_score(prompt_text)
-        dev_tag = "NPU" if classifier.npu_active else "CPU-AVX512"
+        dev_tag = classifier.device_tag
 
         # -------------------------------------------------------------
         # 3. Multimodal & Tiered Complexity Routing

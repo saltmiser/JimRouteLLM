@@ -49,11 +49,13 @@ class ModernBertClassifier:
         use_onnx: bool = True,
         use_npu: bool = True,
         max_tokens: int = 2048,
+        device: str = "cuda",
     ):
         self.model_id = model_id
         self.use_onnx = use_onnx
         self.use_npu = use_npu
         self.max_tokens = max_tokens
+        self.device_setting = device.lower().strip()
         self.tokenizer = None
         self.ort_session = None
         self.torch_model = None
@@ -61,11 +63,14 @@ class ModernBertClassifier:
         self.npu_device = None
         self.npu_active = False
         self.device_name = "CPU"
+        self.device_tag = "CPU-AVX512"
+        self.is_cuda = False
         
         self.models_dir = Path(__file__).resolve().parent.parent / "models"
         self.models_dir.mkdir(parents=True, exist_ok=True)
         int8_path = self.models_dir / "modernbert_large_int8.onnx"
         self.onnx_path = int8_path if int8_path.exists() else (self.models_dir / "modernbert_large.onnx")
+        self.head_weights_path = self.models_dir / "classifier_head.pt"
 
     def tokenize_with_middle_truncation(self, text: str, max_length: Optional[int] = None) -> dict:
         """
@@ -90,7 +95,13 @@ class ModernBertClassifier:
         final_ids = [cls_id] + token_ids + [sep_id]
         mask = [1] * len(final_ids)
 
-        if self.ort_session:
+        if self.is_cuda and self.torch_model:
+            import torch
+            return {
+                "input_ids": torch.tensor([final_ids], dtype=torch.long, device="cuda"),
+                "attention_mask": torch.tensor([mask], dtype=torch.long, device="cuda")
+            }
+        elif self.ort_session:
             return {
                 "input_ids": np.array([final_ids], dtype=np.int64),
                 "attention_mask": np.array([mask], dtype=np.int64)
@@ -104,7 +115,7 @@ class ModernBertClassifier:
         return {"input_ids": final_ids, "attention_mask": mask}
 
     def lazy_load(self):
-        """Load tokenizer, NPU device, and model weights on first use."""
+        """Load tokenizer, NPU device probe, and model weights on first use."""
         if self._is_loaded:
             return
 
@@ -123,17 +134,71 @@ class ModernBertClassifier:
                 logger.debug(f"[Hardware] NPU device probe skipped: {e}")
                 self.npu_device = None
 
-        # 2. Tensor Execution Engine:
-        # Note: Under Linux, ONNX Runtime executes the INT8 graph on the AMD Zen 4 CPU via
-        # CPUExecutionProvider with AVX-512 VNNI vector acceleration (giving 18-35ms latencies).
-        # Native XDNA 1 NPU graph offload on Linux requires VitisAIExecutionProvider with static xclbin overlays.
-        self.npu_active = False
+        from transformers import AutoTokenizer
+        self.tokenizer = AutoTokenizer.from_pretrained(self.model_id)
+
+        # 2. Check if CUDA execution is requested and available
+        want_cuda = self.device_setting in ("cuda", "gpu") or (self.device_setting == "auto")
+
+        if want_cuda:
+            try:
+                import torch
+                if torch.cuda.is_available():
+                    import torch.nn as nn
+                    from transformers import AutoModel
+
+                    gpu_name = torch.cuda.get_device_name(0)
+                    self.device_name = f"NVIDIA GPU ({gpu_name})"
+                    self.device_tag = "CUDA-Ada"
+                    self.is_cuda = True
+
+                    class ClassifierWrapper(nn.Module):
+                        def __init__(self, base, head_weights=None):
+                            super().__init__()
+                            self.encoder = base
+                            self.head = nn.Linear(base.config.hidden_size, 2)
+                            if head_weights is not None:
+                                with torch.no_grad():
+                                    self.head.weight.copy_(head_weights['head.weight'])
+                                    self.head.bias.copy_(head_weights['head.bias'])
+
+                        def forward(self, input_ids, attention_mask):
+                            out = self.encoder(input_ids=input_ids, attention_mask=attention_mask)
+                            mask = attention_mask.unsqueeze(-1).to(out.last_hidden_state.dtype)
+                            pooled = (out.last_hidden_state * mask).sum(1) / mask.sum(1).clamp(min=1e-9)
+                            return self.head(pooled)
+
+                    head_weights = None
+                    if self.head_weights_path.exists():
+                        head_weights = torch.load(self.head_weights_path, weights_only=True)
+
+                    base_model = AutoModel.from_pretrained(self.model_id, dtype=torch.float16)
+                    self.torch_model = ClassifierWrapper(base_model, head_weights).half().to("cuda")
+                    self.torch_model.eval()
+
+                    # Warmup run on CUDA
+                    dummy_in = torch.tensor([[101, 2054, 2003, 1037, 102]], dtype=torch.long, device="cuda")
+                    dummy_mask = torch.tensor([[1, 1, 1, 1, 1]], dtype=torch.long, device="cuda")
+                    with torch.no_grad():
+                        _ = self.torch_model(dummy_in, dummy_mask)
+                    torch.cuda.synchronize()
+
+                    self._is_loaded = True
+                    logger.info(f"Loaded ModernBERT-Large on {self.device_name} (FP16 CUDA acceleration, warm-up completed in {time.perf_counter() - t0:.2f}s)")
+                    return
+                else:
+                    logger.warning("[Hardware] CUDA requested but torch.cuda is not available; falling back to CPU.")
+            except Exception as e:
+                logger.error(f"[Hardware] Failed to load on CUDA ({e}); falling back to CPU AVX-512.")
+                self.is_cuda = False
+                self.torch_model = None
+
+        # 3. CPU Execution (AMD Zen 4 AVX-512 VNNI via ONNX Runtime INT8)
         self.device_name = "CPU (AMD Zen 4 AVX-512 VNNI)"
+        self.device_tag = "CPU-AVX512"
+        self.is_cuda = False
 
         try:
-            from transformers import AutoTokenizer
-            self.tokenizer = AutoTokenizer.from_pretrained(self.model_id)
-
             if self.use_onnx and self.onnx_path.exists():
                 import onnxruntime as ort
                 sess_opts = ort.SessionOptions()
@@ -141,7 +206,6 @@ class ModernBertClassifier:
                 self.ort_session = ort.InferenceSession(str(self.onnx_path), sess_opts, providers=["CPUExecutionProvider"])
                 logger.info(f"Loaded ModernBERT INT8 ONNX engine on {self.device_name} from {self.onnx_path}")
             else:
-                # Load PyTorch model with dynamic quantization
                 import torch
                 import torch.nn as nn
                 from transformers import AutoModel
@@ -160,8 +224,7 @@ class ModernBertClassifier:
                 base_model = AutoModel.from_pretrained(self.model_id)
                 wrapper = ClassifierWrapper(base_model)
                 wrapper.eval()
-                
-                # Apply dynamic quantization to linear layers for fast 8-bit inference
+
                 try:
                     self.torch_model = torch.ao.quantization.quantize_dynamic(
                         wrapper, {nn.Linear}, dtype=torch.qint8
@@ -169,7 +232,7 @@ class ModernBertClassifier:
                 except Exception:
                     self.torch_model = wrapper
 
-                logger.info("Loaded ModernBERT-Large PyTorch INT8 quantized engine.")
+                logger.info("Loaded ModernBERT-Large PyTorch INT8 quantized engine on CPU.")
 
             self._is_loaded = True
             logger.info(f"ModernBERT-Large Classifier loaded in {time.perf_counter() - t0:.2f}s")
@@ -229,7 +292,13 @@ class ModernBertClassifier:
                 # Tokenize with head-tail middle truncation (preserving framing & latest user prompt)
                 inputs = self.tokenize_with_middle_truncation(clean_prompt, max_length=self.max_tokens)
 
-                if self.ort_session:
+                if self.is_cuda and self.torch_model:
+                    import torch
+                    with torch.no_grad():
+                        logits = self.torch_model(inputs["input_ids"], inputs["attention_mask"])
+                        probs = torch.softmax(logits.float(), dim=-1)
+                        model_score = float(probs[0][1].item())
+                elif self.ort_session:
                     ort_inputs = {
                         "input_ids": inputs["input_ids"],
                         "attention_mask": inputs["attention_mask"]
@@ -243,8 +312,8 @@ class ModernBertClassifier:
                     import torch
                     with torch.no_grad():
                         logits = self.torch_model(inputs["input_ids"], inputs["attention_mask"])
-                        probs = torch.softmax(logits, dim=-1)
-                        model_score = float(probs[0][1])
+                        probs = torch.softmax(logits.float(), dim=-1)
+                        model_score = float(probs[0][1].item())
         except Exception as e:
             logger.warning(f"Error during ModernBERT inference: {e}")
 
@@ -259,5 +328,6 @@ classifier = ModernBertClassifier(
     model_id=os.getenv("MODERNBERT_MODEL_ID", "answerdotai/ModernBERT-large"),
     use_onnx=os.getenv("MODERNBERT_USE_ONNX", "true").lower() in ("true", "1", "yes"),
     use_npu=os.getenv("NPU_ENABLED", "true").lower() in ("true", "1", "yes"),
-    max_tokens=int(os.getenv("CLASSIFIER_MAX_TOKENS", "2048"))
+    max_tokens=int(os.getenv("CLASSIFIER_MAX_TOKENS", "2048")),
+    device=os.getenv("CLASSIFIER_DEVICE", "cuda")
 )
