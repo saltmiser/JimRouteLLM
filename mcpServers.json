@@ -1,0 +1,22 @@
+{
+  "mcpServers": {
+    "searxng": {
+      "command": "/home/jac-jim/src/jac-jim/mgmt/JimRouteLLM/venv/bin/python",
+      "args": ["/home/jac-jim/src/jac-jim/mgmt/JimRouteLLM/mcp_searxng_server.py"],
+      "env": {}
+    },
+    "playwright": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp",
+        "--headless",
+        "--executable-path",
+        "/usr/local/bin/google-chrome",
+        "--caps",
+        "vision"
+      ],
+      "env": {}
+    }
+  }
+}
