@@ -4,7 +4,7 @@
 
 It pairs an **AMD XDNA 1 NPU-accelerated ModernBERT classifier** with tiered routing across dual local models supporting native **Thinking** and **Multimodal Vision**, integrated with **SearXNG Web Search** and **Playwright Headless Chrome** over the Model Context Protocol (MCP).
 
-[**Installation Guide**](INSTALL.md) • [**Hardware Profile (HP ZBook)**](DEVICES.md) • [**Testing & Benchmarks**](TESTING.md) • [**Citation**](CITATION.cff)
+[**Installation Guide**](INSTALL.md) • [**Hardware Profile (HP ZBook)**](DEVICES.md) • [**Testing & Benchmarks**](TESTING.md) • [**Architecture Decisions**](ARCHITECTURE_DECISIONS.md) • [**Citation**](CITATION.cff)
 
 ![AI Generated](https://img.shields.io/badge/Code-100%25%20AI%20Generated-7952n2?style=flat-square&logo=openai&logoColor=white)
 ---
@@ -89,7 +89,9 @@ Both loaded endpoints support native reasoning (`reasoning_content` chain-of-tho
 
 ## Open Interpreter Integration
 
-Open Interpreter is configured with all available MCP servers in `~/.openinterpreter/config.toml`. While Open Interpreter considers all tools active at all times, **JimRouteLLM acts as a dynamic negative tool pruner**: it inspects each prompt in <0.2ms and automatically strips out irrelevant tool schemas before sending the prompt to the LLM, preserving fast Time-To-First-Token (<1s) while allowing Open Interpreter to natively execute the requested tool calls:
+Open Interpreter is configured with all available MCP servers in `~/.openinterpreter/config.toml`. While Open Interpreter considers all tools active at all times, **JimRouteLLM acts as a dynamic negative tool pruner**: it inspects each prompt in <0.2ms and automatically strips out irrelevant tool schemas before sending the prompt to the LLM, preserving fast Time-To-First-Token (<1s) while allowing Open Interpreter to natively execute the requested tool calls.
+
+*(For the complete design journey, failure analysis of server-side tool injection, and empirical session traces, see the [**Architecture Decision Record**](ARCHITECTURE_DECISIONS.md).)*
 
 ```toml
 model = "routellm"
