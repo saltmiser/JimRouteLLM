@@ -1,8 +1,8 @@
-# JimRouteLLM: Intelligent Local/LAN LLM Router & NPU-Accelerated Classifier
+# JimRouteLLM: Intelligent Local/LAN LLM Router & AVX-512 INT8 Classifier
 
 **JimRouteLLM** is an OpenAI-compatible proxy and routing engine designed for local developer tooling, autonomous coding agents (e.g., Open Interpreter), and heterogeneous LAN clusters. 
 
-It pairs an **INT8-quantized ModernBERT classifier** (with AMD XDNA 1 NPU initialization and AVX-512 VNNI CPU acceleration) with tiered routing across dual local models supporting native **Thinking** and **Multimodal Vision**, integrated with **SearXNG Web Search** and **Playwright Headless Chrome** over the Model Context Protocol (MCP).
+It pairs an **INT8-quantized ModernBERT classifier** (accelerated by AMD Zen 4 AVX-512 VNNI with XDNA 1 NPU hardware device probe) with tiered routing across dual local models supporting native **Thinking** and **Multimodal Vision**, integrated with **SearXNG Web Search** and **Playwright Headless Chrome** over the Model Context Protocol (MCP).
 
 [**Installation Guide**](INSTALL.md) • [**Hardware Profile (HP ZBook)**](DEVICES.md) • [**Testing & Benchmarks**](TESTING.md) • [**Architecture Decisions**](ARCHITECTURE_DECISIONS.md) • [**Citation**](CITATION.cff)
 
@@ -165,7 +165,7 @@ JimRouteLLM includes automated verification suites:
    ```bash
    ./venv/bin/python scripts/test_proxy.py
    ```
-   Validates LAN node assignments, NPU classifier accuracy, complexity thresholding, and multi-turn sticky hashing.
+   Validates LAN node assignments, ModernBERT INT8 scoring, complexity thresholding, and multi-turn sticky hashing.
 
 2. **MCP & Search Verification Suite**:
    ```bash
@@ -177,7 +177,7 @@ JimRouteLLM includes automated verification suites:
    ```bash
    ./venv/bin/python scripts/test_live_proxy.py
    ```
-   Tests live HTTP endpoints against the running server (`http://127.0.0.1:8000`), validating tier routing (Gemma vs. Muse), live MCP dynamic tool schema pruning, response observability headers, sticky session caching, and error handling.
+   Tests live HTTP endpoints against the running server (`http://127.0.0.1:8000`), validating tier routing (Gemma 4 E2B vs. Gemma 4 26B-A4B), live MCP dynamic tool schema pruning, response observability headers, sticky session caching, and error handling.
 
 4. **Multi-Turn KV-Cache & Sticky Session Benchmark**:
    ```bash

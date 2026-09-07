@@ -111,18 +111,24 @@ class ModernBertClassifier:
         logger.info(f"Initializing ModernRoBERTa/ModernBERT Classifier ({self.model_id})...")
         t0 = time.perf_counter()
 
-        # 1. Initialize AMD XDNA NPU hardware if enabled
+        # 1. Hardware device probe: AMD XDNA 1 NPU check
+        self.npu_hardware_detected = False
         if self.use_npu:
             try:
                 import pyxrt
                 self.npu_device = pyxrt.device(0)
-                self.npu_active = True
-                self.device_name = "AMD Ryzen AI XDNA 1 NPU (/dev/accel/accel0)"
-                logger.info(f"[NPU] Initialized {self.device_name} for classifier acceleration.")
+                self.npu_hardware_detected = True
+                logger.info("[Hardware] Probed AMD Ryzen AI XDNA 1 NPU (/dev/accel/accel0). Device node open.")
             except Exception as e:
-                logger.warning(f"[NPU] Hardware initialization fallback: {e}")
-                self.npu_active = False
-                self.device_name = "CPU (ONNX Runtime INT8)"
+                logger.debug(f"[Hardware] NPU device probe skipped: {e}")
+                self.npu_device = None
+
+        # 2. Tensor Execution Engine:
+        # Note: Under Linux, ONNX Runtime executes the INT8 graph on the AMD Zen 4 CPU via
+        # CPUExecutionProvider with AVX-512 VNNI vector acceleration (giving 18-35ms latencies).
+        # Native XDNA 1 NPU graph offload on Linux requires VitisAIExecutionProvider with static xclbin overlays.
+        self.npu_active = False
+        self.device_name = "CPU (AMD Zen 4 AVX-512 VNNI)"
 
         try:
             from transformers import AutoTokenizer
@@ -133,7 +139,7 @@ class ModernBertClassifier:
                 sess_opts = ort.SessionOptions()
                 sess_opts.graph_optimization_level = ort.GraphOptimizationLevel.ORT_ENABLE_ALL
                 self.ort_session = ort.InferenceSession(str(self.onnx_path), sess_opts, providers=["CPUExecutionProvider"])
-                logger.info(f"Loaded ModernBERT ONNX engine from {self.onnx_path}")
+                logger.info(f"Loaded ModernBERT INT8 ONNX engine on {self.device_name} from {self.onnx_path}")
             else:
                 # Load PyTorch model with dynamic quantization
                 import torch

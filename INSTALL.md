@@ -59,24 +59,26 @@ Ensure the configuration matches your local endpoints:
 PROXY_HOST=0.0.0.0
 PROXY_PORT=8000
 
-# Routing Engine & NPU Acceleration
+# Routing Engine & ModernBERT INT8 Classifier
 ROUTER_TYPE=modernbert
-ROUTING_THRESHOLD=0.45
+ROUTING_THRESHOLD=0.28
 MODERNBERT_MODEL_ID=answerdotai/ModernBERT-large
 MODERNBERT_USE_ONNX=true
 NPU_ENABLED=true
+CLASSIFIER_MAX_TOKENS=2048
 
-# Local Models (LM Studio @ 127.0.0.1:1234)
-LOCAL_EASY_MODEL=google/gemma-4-12b-qat
-LOCAL_HARD_MODEL=meta/muse-glimmer
-LOCAL_VISION_MODEL=meta/muse-glimmer
+# Local Target Models (LM Studio @ 127.0.0.1:1234)
+LOCAL_EASY_MODEL=google/gemma-4-e2b
+LOCAL_HARD_MODEL=google/gemma-4-26b-a4b-qat
+LOCAL_VISION_MODEL=google/gemma-4-26b-a4b-qat
 LOCAL_LM_STUDIO_URL=http://127.0.0.1:1234/v1
+ALL_MODELS_SUPPORT_VISION=true
 
 # MCP Dynamic Tool Pruning
 ENABLE_MCP_ROUTING=true
 MCP_ROUTING_MODE=filter
 MCP_SERVERS_FILE=mcpServers.json
-MCP_MAX_LOCAL_TOOLS=8
+MCP_MAX_LOCAL_TOOLS=16
 ```
 
 ---
@@ -191,10 +193,10 @@ interpreter exec --dangerously-bypass-approvals-and-sandbox \
 ---
 
 ## 8. Troubleshooting
-
-- **502 Bad Gateway / Connection Refused**:
-  - Verify LM Studio is running on `http://127.0.0.1:1234` with the models loaded.
-- **NPU Initialization Fallback**:
-  - If `/dev/accel/accel0` is not accessible, JimRouteLLM automatically falls back to CPU INT8 ONNX execution with sub-80ms latency.
-- **High TTFT Delay**:
-  - Check `X-RouteLLM-Tools-Pruned` header in server responses to ensure dynamic MCP pruning is active (`ENABLE_MCP_ROUTING=true`).
+ 
+ - **502 Bad Gateway / Connection Refused**:
+   - Verify LM Studio is running on `http://127.0.0.1:1234` with the models loaded.
+ - **Classifier Hardware Status**:
+   - JimRouteLLM probes `/dev/accel/accel0` on startup and executes the INT8 ModernBERT ONNX graph using AMD Zen 4 AVX-512 VNNI instructions via `CPUExecutionProvider`, achieving sub-35ms prompt scoring.
+ - **High TTFT Delay**:
+   - Check `X-RouteLLM-Tools-Pruned` header in server responses to ensure dynamic MCP pruning is active (`ENABLE_MCP_ROUTING=true`).

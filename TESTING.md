@@ -93,11 +93,11 @@ All tests validate that the hardware-accelerated classifier, tiered routing engi
 
 [3] Testing Hybrid Router Decisions:
     • [LOCAL] -> Model: google/gemma-4-e2b (Score: 0.246, Thresh: 0.28)
-      Node: zbook-gemma | Reason: Easy text/thinking task (Score 0.246 < 0.28 via NPU classifier) -> routed to google/gemma-4-e2b (HP ZBook Gemma 4 E2B (NVIDIA Local))
+      Node: zbook-gemma | Reason: Easy text/thinking task (Score 0.246 < 0.28 via CPU-AVX512 classifier) -> routed to google/gemma-4-e2b (HP ZBook Gemma 4 E2B (NVIDIA Local))
     • [LOCAL] -> Model: google/gemma-4-e2b (Score: 0.050, Thresh: 0.28)
-      Node: zbook-gemma | Reason: Easy text/thinking task (Score 0.050 < 0.28 via NPU classifier) -> routed to google/gemma-4-e2b (HP ZBook Gemma 4 E2B (NVIDIA Local))
+      Node: zbook-gemma | Reason: Easy text/thinking task (Score 0.050 < 0.28 via CPU-AVX512 classifier) -> routed to google/gemma-4-e2b (HP ZBook Gemma 4 E2B (NVIDIA Local))
     • [LOCAL] -> Model: google/gemma-4-26b-a4b-qat (Score: 0.421, Thresh: 0.28)
-      Node: zbook-gemma-26b | Reason: Hard text/thinking task (Score 0.421 >= 0.28 via NPU classifier) -> routed to google/gemma-4-26b-a4b-qat (HP ZBook Gemma 4 26B-A4B (AMD Local))
+      Node: zbook-gemma-26b | Reason: Hard text/thinking task (Score 0.421 >= 0.28 via CPU-AVX512 classifier) -> routed to google/gemma-4-26b-a4b-qat (HP ZBook Gemma 4 26B-A4B (AMD Local))
     • [LOCAL] -> Model: google/gemma-4-26b-a4b-qat (Score: 0.482, Thresh: 0.28)
       Node: zbook-gemma-26b | Reason: Sticky session affinity (user-session-123) preserves google/gemma-4-26b-a4b-qat KV cache (HP ZBook Gemma 4 26B-A4B (AMD Local))
     • [LOCAL] -> Model: google/gemma-4-26b-a4b-qat (Score: 0.475, Thresh: 0.28)
@@ -220,18 +220,20 @@ All tests validate that the hardware-accelerated classifier, tiered routing engi
     [✔] PASSED: Virtual and physical models exposed
 
 [Test 3] Low-Complexity Prompt Routing (Target: google/gemma-4-e2b)
-    Latency:      1.66s
-    Target Tier:  local
-    Model Routed: google/gemma-4-e2b
-    NPU Score:    0.050 (Threshold < 0.28)
-    Reply:        '4'
+    Latency:          1.66s
+    Target Tier:      local
+    Model Routed:     google/gemma-4-e2b
+    Classifier Score: 0.050 (Threshold < 0.28)
+    Device:           CPU-AVX512
+    Reply:            '4'
     [✔] PASSED: Low-complexity prompt cleanly routed to Gemma 4 E2B
 
 [Test 4] High-Complexity Prompt Routing (Target: google/gemma-4-26b-a4b-qat)
-    Latency:      14.25s
-    Target Tier:  local
-    Model Routed: google/gemma-4-26b-a4b-qat
-    NPU Score:    0.482 (Threshold >= 0.28)
+    Latency:          14.47s
+    Target Tier:      local
+    Model Routed:     google/gemma-4-26b-a4b-qat
+    Classifier Score: 0.482 (Threshold >= 0.28)
+    Device:           CPU-AVX512
     Reply snippet:'*   *Core Components:* Distributed Event-Driven Microservices.
 *   *Consensus Mechanism:* ...'
     [✔] PASSED: High-complexity prompt cleanly routed to Gemma 4 26B-A4B

@@ -9,9 +9,9 @@
 
 ## 1. Context & Motivation
 
-When deploying autonomous coding agents (such as Open Interpreter or Codex CLI) backed by local, on-device Large Language Models (e.g., `google/gemma-4-12b-qat` and `meta/muse-glimmer` on an HP ZBook Power G11 workstation), two primary challenges arise:
+When deploying autonomous coding agents (such as Open Interpreter or Codex CLI) backed by local, on-device Large Language Models (e.g., `google/gemma-4-e2b` and `google/gemma-4-26b-a4b-qat` on an HP ZBook Power G11 workstation), two primary challenges arise:
 
-1. **Context Window & TTFT Latency**: Local models running on consumer workstation GPUs and NPUs are sensitive to prompt token size. Every additional 1,000 tokens of prompt context increases Time-To-First-Token (TTFT) and places heavy strain on KV-cache memory.
+1. **Context Window & TTFT Latency**: Local models running on consumer workstation GPUs and CPUs are sensitive to prompt token size. Every additional 1,000 tokens of prompt context increases Time-To-First-Token (TTFT) and places heavy strain on KV-cache memory.
 2. **Tool Specialization**: Real-world developer agents need access to specialized tools via the Model Context Protocol (MCP)—including local multi-engine web search ([SearXNG](http://127.0.0.1:8888)), headless browser automation ([Playwright Chrome](https://github.com/microsoft/playwright)), file manipulation, and terminal execution.
 
 How these tools are registered, exposed, and filtered between the agent client (Open Interpreter) and the inference routing proxy (JimRouteLLM) determines whether the system is responsive (<1s latency) or stalls in unrecoverable retry loops.

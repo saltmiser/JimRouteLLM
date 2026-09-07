@@ -79,11 +79,12 @@ def main():
     msg = body["choices"][0]["message"]
     reply = (msg.get("content") or msg.get("reasoning_content") or "").strip()
     
-    print(f"    Latency:      {dt:.2f}s")
-    print(f"    Target Tier:  {target}")
-    print(f"    Model Routed: {model_used}")
-    print(f"    NPU Score:    {score:.3f} (Threshold < 0.28)")
-    print(f"    Reply:        '{reply}'")
+    print(f"    Latency:          {dt:.2f}s")
+    print(f"    Target Tier:      {target}")
+    print(f"    Model Routed:     {model_used}")
+    print(f"    Classifier Score: {score:.3f} (Threshold < 0.28)")
+    print(f"    Device:           {resp_headers.get('x-routellm-device', 'CPU-AVX512')}")
+    print(f"    Reply:            '{reply}'")
     assert status == 200, f"HTTP {status}"
     assert model_used == "google/gemma-4-e2b", f"Expected gemma e2b, got {model_used}"
     assert score < 0.28, f"Expected score < 0.28, got {score}"
@@ -111,10 +112,11 @@ def main():
     hard_msg = body["choices"][0]["message"]
     reply = (hard_msg.get("content") or hard_msg.get("reasoning_content") or "").strip()
     
-    print(f"    Latency:      {dt:.2f}s")
-    print(f"    Target Tier:  {target}")
-    print(f"    Model Routed: {model_used}")
-    print(f"    NPU Score:    {score:.3f} (Threshold >= 0.28)")
+    print(f"    Latency:          {dt:.2f}s")
+    print(f"    Target Tier:      {target}")
+    print(f"    Model Routed:     {model_used}")
+    print(f"    Classifier Score: {score:.3f} (Threshold >= 0.28)")
+    print(f"    Device:           {resp_headers.get('x-routellm-device', 'CPU-AVX512')}")
     print(f"    Reply snippet:'{reply[:90]}...'")
     assert status == 200, f"HTTP {status}"
     assert model_used == "google/gemma-4-26b-a4b-qat", f"Expected gemma 26b, got {model_used}"

@@ -204,14 +204,14 @@ class HybridRouter:
                 return decision
 
         # -------------------------------------------------------------
-        # 2. ModernRoBERTa / ModernBERT NPU Complexity Evaluation
+        # 2. ModernBERT INT8 Complexity Evaluation
         # -------------------------------------------------------------
         router_override, threshold_override = self.parse_requested_model(requested_model)
         active_router = router_override or self.router_type
         threshold = threshold_override if threshold_override is not None else self.default_threshold
 
         score = classifier.calculate_complexity_score(prompt_text)
-        dev_tag = "NPU" if classifier.npu_active else "CPU"
+        dev_tag = "NPU" if classifier.npu_active else "CPU-AVX512"
 
         # -------------------------------------------------------------
         # 3. Multimodal & Tiered Complexity Routing
@@ -267,7 +267,7 @@ class HybridRouter:
             litellm_model=f"openai/{target_model}",
             score=score,
             threshold=threshold,
-            router_name=f"modernroberta-{dev_tag.lower()}",
+            router_name=f"modernbert-{dev_tag.lower()}",
             prompt_snippet=snippet,
             node_id=selected_node.id,
             api_base=selected_node.base_url,

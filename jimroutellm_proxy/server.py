@@ -117,6 +117,8 @@ async def root():
         "service": "JimRouteLLM Hybrid Proxy",
         "version": "1.0.0",
         "classifier": "ModernBERT-Large (395M, 8k context, INT8)",
+        "classifier_device": "CPU (AMD Zen 4 AVX-512 VNNI)",
+        "npu_status": "AMD XDNA 1 (/dev/accel/accel0 probed; inference on CPU AVX-512 VNNI)",
         "cloud_provider": "Google AI Studio (Gemini)" if settings.is_gemini_configured() else "None",
         "lan_nodes_count": len(settings.lan_nodes),
         "lan_nodes": [n.to_dict() for n in settings.lan_nodes],
@@ -332,6 +334,7 @@ async def chat_completions(request: Request):
         "X-RouteLLM-Target": decision.target,
         "X-RouteLLM-Model": decision.model_name,
         "X-RouteLLM-Score": f"{decision.score:.3f}" if decision.score is not None else "0.000",
+        "X-RouteLLM-Device": "CPU-AVX512",
         "X-RouteLLM-Node": decision.node_id or "cloud",
         "X-RouteLLM-Reason": decision.reason,
     }
