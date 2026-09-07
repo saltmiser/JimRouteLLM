@@ -1,0 +1,27 @@
+cff-version: 1.2.0
+message: "If you use or reference this software, please cite it using the metadata below."
+title: "JimRouteLLM: Intelligent Local/LAN LLM Router & NPU-Accelerated Classifier"
+abstract: "An OpenAI-compatible proxy and routing engine designed for local developer tooling, autonomous coding agents, and heterogeneous LAN clusters with AMD XDNA 1 NPU acceleration and dynamic MCP tool manifest pruning."
+type: software
+version: "0.1.0"
+date-released: "2026-09-07"
+repository-code: "https://github.com/saltmiser/JimRouteLLM"
+url: "https://github.com/saltmiser/JimRouteLLM"
+authors:
+  - name: "Gemini 3.8 Flash"
+    affiliation: "Google DeepMind"
+    notes: "Primary AI Software Engineering Author"
+  - name: "saltmiser"
+    affiliation: "Independent Researcher & System Architect"
+    role: "maintainer"
+    notes: "Project Architect, System Orchestrator & Lead Maintainer"
+keywords:
+  - "llm-router"
+  - "npu-acceleration"
+  - "modernbert"
+  - "open-interpreter"
+  - "model-context-protocol"
+  - "searxng"
+  - "playwright"
+  - "ai-generated"
+  - "gemini-3.8-flash"

@@ -23,6 +23,7 @@ DOMAIN_TO_SERVERS: Dict[str, List[str]] = {
     "roasting_inventory": ["cropster-v1-mcp", "listingmirror-v3"],
     "digital_assets": ["canto-v1-mcp"],
     "web_search": ["searxng-mcp", "searxng", "searxng-server"],
+    "browser": ["playwright", "playwright-mcp", "browser"],
 }
 
 SERVER_TO_DOMAIN: Dict[str, str] = {}

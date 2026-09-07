@@ -27,7 +27,7 @@ def is_mcp_tool(tool_name: str) -> bool:
     tool_lower = tool_name.lower()
     mcp_prefixes = [
         "shipstation", "shopify", "recharge", "cropster", "listingmirror",
-        "canto", "searxng", "mcp__", "mcp_",
+        "canto", "searxng", "mcp__", "mcp_", "browser_", "playwright",
     ]
     if any(tool_lower.startswith(p) for p in mcp_prefixes):
         return True
@@ -81,10 +81,17 @@ DOMAIN_KEYWORDS: Dict[str, Set[str]] = {
         "share link", "content detail", "media library", "brand asset", "assetview",
     },
     "web_search": {
-        "search web", "search the web", "search online", "look up online", "google",
+        "search", "searxng_search", "search web", "search the web", "search online", "look up online", "google",
         "current events", "latest news", "latest documentation", "search query",
         "searxng", "browse the web", "search internet", "browse internet", "web_search",
-        "look online", "find online", "search for", "live search",
+        "look online", "find online", "search for", "live search", "lookup",
+    },
+    "browser": {
+        "browser", "browse", "webpage", "website", "url", "urls", "navigate", "navigation",
+        "click", "clicks", "button", "buttons", "screenshot", "screenshots", "dom", "html",
+        "form", "forms", "fill", "input", "scroll", "hover", "chrome", "link", "links",
+        "playwright", "headless", "tab", "tabs", "press_key", "snapshot", "css",
+        "page", "pages", "select_option",
     },
 }
 
@@ -113,6 +120,12 @@ DOMAIN_PATTERNS: Dict[str, List[re.Pattern]] = {
     "web_search": [
         re.compile(r"\b(search\s*(the\s*)?(web|internet|online)|browse\s*(the\s*)?(web|internet|online)|look\s*up\s*online|searxng)\b", re.IGNORECASE),
         re.compile(r"\b(current\s*news|latest\s*news|news\s*regarding|search\s*for)\b", re.IGNORECASE),
+    ],
+    "browser": [
+        re.compile(r"https?://[^\s<>\"']+", re.IGNORECASE),
+        re.compile(r"\b(browser|playwright|chrome|headless)\b", re.IGNORECASE),
+        re.compile(r"\b(navigate(\s+to)?|visit|open\s+(url|website|page)|click(\s+on)?|take\s+(a\s+)?screenshot)\b", re.IGNORECASE),
+        re.compile(r"\b(fill\s+(the\s+)?form|submit\s+(the\s+)?form|press\s+key)\b", re.IGNORECASE),
     ],
 }
 
@@ -149,7 +162,7 @@ class MCPClassifier:
                     break
 
         # 2. Keyword Matching
-        words = set(re.findall(r"\b[a-z0-9_-]+\b", prompt_lower))
+        words = set(w for w in re.split(r'[^a-z0-9]+', prompt_lower) if w) | set(re.findall(r"\b[a-z0-9_-]+\b", prompt_lower))
         for domain, kws in DOMAIN_KEYWORDS.items():
             if domain in active_domains:
                 continue
@@ -193,7 +206,11 @@ class MCPClassifier:
         if reg_domain:
             return reg_domain
 
-        # 3. Prefix matching
+        # 3. Substring & Prefix matching
+        if any(p in tool_name for p in ["playwright", "browser_"]):
+            return "browser"
+        if any(p in tool_name for p in ["searxng", "web_search"]):
+            return "web_search"
         if any(tool_name.startswith(p) for p in ["shipstation", "tracking", "carrier", "label", "warehouse"]):
             return "shipping"
         if any(tool_name.startswith(p) for p in ["shopify", "recharge", "order", "customer", "refund", "subscription"]):
@@ -202,8 +219,6 @@ class MCPClassifier:
             return "roasting_inventory"
         if any(tool_name.startswith(p) for p in ["canto", "album", "asset"]):
             return "digital_assets"
-        if any(tool_name.startswith(p) for p in ["searxng", "web_search", "search"]):
-            return "web_search"
 
         # 4. Description heuristic matching
         for domain, kws in DOMAIN_KEYWORDS.items():
@@ -212,6 +227,42 @@ class MCPClassifier:
                     return domain
 
         return "custom"
+
+    def classify_conversation(self, messages: List[Dict[str, Any]]) -> List[str]:
+        """
+        Classify active domains across the conversation history:
+        1. Inspect recent user prompts (last 2 user messages).
+        2. Inspect recent assistant tool calls (maintains continuity across turns).
+        """
+        active_domains: Set[str] = set()
+
+        # 1. Inspect recent user prompts
+        user_msgs = [m for m in messages if m.get("role") == "user"][-2:]
+        for u in user_msgs:
+            content = u.get("content", "")
+            if isinstance(content, list):
+                parts = []
+                for p in content:
+                    if isinstance(p, dict) and p.get("type") == "text":
+                        parts.append(p.get("text", ""))
+                content = " ".join(parts)
+            if isinstance(content, str) and content:
+                for d in self.classify_domains(content):
+                    active_domains.add(d)
+
+        # 2. Inspect recent assistant tool calls
+        assistant_msgs = [m for m in messages if m.get("role") == "assistant"][-2:]
+        for a in assistant_msgs:
+            tool_calls = a.get("tool_calls", [])
+            if isinstance(tool_calls, list):
+                for tc in tool_calls:
+                    fn_name = tc.get("function", {}).get("name", "")
+                    if fn_name:
+                        domain = self._get_tool_domain({"function": {"name": fn_name}})
+                        if domain and domain not in ("core_agent", "custom"):
+                            active_domains.add(domain)
+
+        return sorted(list(active_domains))
 
     def rank_and_limit_tools(
         self, tools: List[Dict[str, Any]], prompt: str, max_tools: int = 12
@@ -243,8 +294,8 @@ class MCPClassifier:
                 if len(pw) > 3 and pw in name:
                     score += 4.0
 
-            # Boost primary retrieval tools (get_orders, list_orders, search)
-            if any(ret in name for ret in ["get-order", "get_order", "list_order", "list-order", "get-product", "get_product"]):
+            # Boost primary retrieval tools (get_orders, list_orders, search, navigate)
+            if any(ret in name for ret in ["get-order", "get_order", "list_order", "list-order", "search", "navigate", "find"]):
                 score += 5.0
 
             # Description match
@@ -287,12 +338,12 @@ class MCPClassifier:
             domain = self._get_tool_domain(tool)
             if domain == "core_agent":
                 core_tools.append(clean_openai_tool(tool))
-            elif domain in active_domain_set or domain == "custom":
+            elif domain in active_domain_set:
                 mcp_tools.append(tool)
             else:
                 stripped_chars += len(json.dumps(tool))
 
-        # Top-K ranking for MCP tools
+        # Top-K ranking for MCP tools if above budget
         if max_tools_per_domain and prompt and len(mcp_tools) > max_tools_per_domain:
             mcp_tools = self.rank_and_limit_tools(mcp_tools, prompt, max_tools=max_tools_per_domain)
         else:

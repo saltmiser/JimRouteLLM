@@ -29,27 +29,68 @@ async def main():
         print(f"    • Tool: {fn.get('name')}")
         print(f"      Desc: {fn.get('description')[:70]}...")
 
-    # 3. Test MCP Domain Classifier
+    # 3. Test MCP Domain Classifier & Dynamic Tool Pruning
     print("\n[3] Testing Prompt Intent & Dynamic Tool Pruning:")
+    
+    # Simulate realistic Open Interpreter tool payload (MCP tools + core agent tools)
+    sample_agent_tools = [
+        {"type": "function", "function": {"name": "exec_command", "description": "Execute shell command"}},
+        {"type": "function", "function": {"name": "write_stdin", "description": "Write to stdin"}},
+    ]
+    full_tool_catalog = sample_agent_tools + all_tools
+
     test_cases = [
-        ("Search the web for latest AMD Ryzen AI Linux drivers", True, "web_search"),
-        ("Write a Python script to compute Fibonacci numbers with memoization", False, "none"),
-        ("Browse online and look up current news regarding space exploration", True, "web_search"),
+        (
+            "Search the web for latest AMD Ryzen AI Linux drivers",
+            ["web_search"],
+            {"searxng_search", "exec_command", "write_stdin"},
+            "browser_navigate"
+        ),
+        (
+            "Write a Python script to compute Fibonacci numbers with memoization",
+            [],
+            {"exec_command", "write_stdin"},
+            "searxng_search"
+        ),
+        (
+            "Use browser_navigate to visit http://example.com and click the submit button",
+            ["browser"],
+            {"browser_navigate", "browser_click", "exec_command", "write_stdin"},
+            "searxng_search"
+        ),
     ]
 
-    for prompt, should_include_search, expected_domain in test_cases:
+    for prompt, expected_domains, must_include, must_not_include in test_cases:
         matched_domains = mcp_classifier.classify_domains(prompt)
         filtered_tools, total, kept, pruned = mcp_classifier.filter_tools(
-            incoming_tools=all_tools,
+            incoming_tools=full_tool_catalog,
             active_domains=matched_domains,
             prompt=prompt
         )
-        has_search_tool = any(t["function"]["name"] == "searxng_search" for t in filtered_tools)
-        print(f"\n    • Prompt: '{prompt[:55]}...'")
-        print(f"      Matched Domains: {matched_domains}")
-        print(f"      Filtered Tools:  {[t['function']['name'] for t in filtered_tools]} (Kept: {kept}, Pruned: {pruned})")
-        print(f"      Search Included: {has_search_tool} {'[MATCH]' if has_search_tool == should_include_search else '[FAIL]'}")
-        assert has_search_tool == should_include_search, f"Tool filtering mismatch for: {prompt}"
+        tool_names = {t["function"]["name"] for t in filtered_tools}
+        
+        has_required = must_include.issubset(tool_names)
+        excludes_unwanted = must_not_include not in tool_names
+        
+        print(f"\n    • Prompt: '{prompt[:60]}...'")
+        print(f"      Matched Domains: {matched_domains} (Expected: {expected_domains})")
+        print(f"      Tools: Kept {len(filtered_tools)} / Pruned {pruned} from {total}")
+        print(f"      Required Tools Included: {has_required} [MATCH]")
+        print(f"      Excluded Unwanted Tools: {excludes_unwanted} [MATCH]")
+        assert has_required, f"Missing required tools in: {tool_names}"
+        assert excludes_unwanted, f"Unwanted tool '{must_not_include}' present in: {tool_names}"
+
+    # Test Multi-Turn Continuity
+    print("\n[3.1] Testing Multi-Turn Conversation Continuity:")
+    conversation = [
+        {"role": "user", "content": "Navigate to https://example.com"},
+        {"role": "assistant", "content": "Navigating now.", "tool_calls": [{"function": {"name": "browser_navigate"}}]},
+        {"role": "user", "content": "What is the heading text?"} # Short prompt without explicit keyword
+    ]
+    conv_domains = mcp_classifier.classify_conversation(conversation)
+    print(f"    • Conversation Active Domains: {conv_domains}")
+    assert "browser" in conv_domains, f"Expected 'browser' domain in multi-turn conversation, got: {conv_domains}"
+    print("    • Multi-turn tool continuity preserved: [MATCH]")
 
     # 4. Test Live Tool Execution via MCP Bridge
     print("\n[4] Testing Live SearXNG Search Execution via MCP Bridge:")

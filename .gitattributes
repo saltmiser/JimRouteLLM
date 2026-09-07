@@ -1,0 +1,10 @@
+# GitHub Linguist Configuration
+# Mark repository files as generated code
+* linguist-generated=true
+*.py linguist-generated=true
+*.sh linguist-generated=true
+*.json linguist-generated=true
+*.toml linguist-generated=true
+*.md linguist-generated=true
+*.txt linguist-generated=true
+.env.example linguist-generated=true

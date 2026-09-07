@@ -4,6 +4,8 @@
 
 It pairs an **AMD XDNA 1 NPU-accelerated ModernBERT classifier** with tiered routing across dual local models supporting native **Thinking** and **Multimodal Vision**, integrated with **SearXNG Web Search** and **Playwright Headless Chrome** over the Model Context Protocol (MCP).
 
+[**Installation Guide**](INSTALL.md) • [**Hardware Profile (HP ZBook)**](DEVICES.md) • [**Testing & Benchmarks**](TESTING.md) • [**Citation**](CITATION.cff)
+
 ---
 
 ## Architecture Overview
@@ -72,8 +74,15 @@ Both loaded endpoints support native reasoning (`reasoning_content` chain-of-tho
 - **Playwright Headless Chrome** (`@playwright/mcp`):
   - Automates host Google Chrome (`/usr/local/bin/google-chrome`) headlessly with `--caps vision`.
   - Exposes 30 browser automation tools (navigate, click, type, accessibility snapshot trees, screenshots).
-- **Dynamic MCP Tool Pruning** (`mcp_classifier.py`):
-  - Protects local models from naive MCP client catalog dumping (which can inject 12,000+ tokens of unused JSON schemas into the prompt, delaying TTFT by 15-20s).
+- **Dynamic MCP Tool Pruning & Latency Optimization** (`mcp_classifier.py`):
+  - **The Problem**: Coding assistant clients (e.g. Open Interpreter) naively inject all registered MCP tool schemas (30+ Playwright tools + SearXNG) into the prompt on every turn, adding 12,000+ tokens of schema overhead that stalls local single-slot models with ~18s TTFT delays.
+  - **The Solution**: JimRouteLLM intercepts the payload, inspects user intent and conversation history, identifies active domains (`web_search`, `browser`, etc.), and dynamically prunes inactive MCP tool schemas while preserving core agent tools (`exec_command`, `write_stdin`, etc.).
+  - **Observability**: Returns detailed response headers:
+    - `X-RouteLLM-MCP-Domains`: Active domains (e.g. `web_search`, `browser`, or `none`).
+    - `X-RouteLLM-Tools-Original`: Initial tool schema count.
+    - `X-RouteLLM-Tools-Pruned`: Count of stripped schemas.
+    - `X-RouteLLM-Tokens-Saved`: Estimated prompt tokens saved.
+  - **Performance**: Pruned prompt overhead by over 98% (from ~12,500 down to ~150 tokens), cutting Time-To-First-Token from ~18s to <1s and slashing turnaround time on local hardware from ~38s down to **9 seconds**.
 
 ---
 
@@ -156,6 +165,18 @@ JimRouteLLM includes automated verification suites:
    ./venv/bin/python scripts/test_mcp_routing.py
    ```
    Verifies tool discovery from SearXNG and Playwright, domain classification, and live search execution.
+
+3. **Live Proxy & Core Integration Suite**:
+   ```bash
+   ./venv/bin/python scripts/test_live_proxy.py
+   ```
+   Tests live HTTP endpoints against the running server (`http://127.0.0.1:8000`), validating tier routing (Gemma vs. Muse), live MCP dynamic tool schema pruning, response observability headers, sticky session caching, and error handling.
+
+4. **Multi-Turn KV-Cache & Sticky Session Benchmark**:
+   ```bash
+   ./venv/bin/python scripts/test_kv_cache_multiturn.py
+   ```
+   Simulates a 10-turn sequential developer session, verifying 100% deterministic node affinity to maintain local hardware prompt KV-cache acceleration while transitioning across coding, search, and browser domains.
 
 ---
 

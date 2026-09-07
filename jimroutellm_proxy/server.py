@@ -252,10 +252,34 @@ async def chat_completions(request: Request):
 
     if max_tokens:
         litellm_kwargs["max_tokens"] = max_tokens
-    if tools:
+
+    # Dynamic MCP Tool Pruning (Prunes unused tool schemas to save prompt tokens & reduce TTFT)
+    if settings.enable_mcp_routing and tools:
+        active_domains = mcp_classifier.classify_conversation(messages)
+        max_tools = settings.mcp_max_local_tools if decision.target == "local" else settings.mcp_max_cloud_tools
+        prompt_text = router.extract_prompt_text(messages)
+        pruned_tools, orig_cnt, pruned_cnt, tokens_saved = mcp_classifier.filter_tools(
+            incoming_tools=tools,
+            active_domains=active_domains,
+            prompt=prompt_text,
+            max_tools_per_domain=max_tools
+        )
+        if pruned_tools:
+            litellm_kwargs["tools"] = pruned_tools
+            if tool_choice:
+                litellm_kwargs["tool_choice"] = tool_choice
+        headers["X-RouteLLM-MCP-Domains"] = ",".join(active_domains) or "none"
+        headers["X-RouteLLM-Tools-Original"] = str(orig_cnt)
+        headers["X-RouteLLM-Tools-Pruned"] = str(pruned_cnt)
+        headers["X-RouteLLM-Tokens-Saved"] = str(tokens_saved)
+        if pruned_cnt > 0:
+            logger.info(
+                f"[MCP PRUNER] Pruned {pruned_cnt}/{orig_cnt} tools (saved ~{tokens_saved} tokens | active domains: {active_domains or ['none']})"
+            )
+    elif tools:
         litellm_kwargs["tools"] = tools
-    if tool_choice:
-        litellm_kwargs["tool_choice"] = tool_choice
+        if tool_choice:
+            litellm_kwargs["tool_choice"] = tool_choice
 
     # Local LAN node routing parameters
     if decision.target == "local":
