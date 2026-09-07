@@ -6,8 +6,7 @@ It pairs an **AMD XDNA 1 NPU-accelerated ModernBERT classifier** with tiered rou
 
 [**Installation Guide**](INSTALL.md) • [**Hardware Profile (HP ZBook)**](DEVICES.md) • [**Testing & Benchmarks**](TESTING.md) • [**Citation**](CITATION.cff)
 
-![AI Generated](https://shields.io)
-
+![AI Generated](https://img.shields.io/badge/Code-100%25%20AI%20Generated-7952n2?style=flat-square&logo=openai&logoColor=white)
 ---
 
 ## Architecture Overview
